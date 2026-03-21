@@ -1,144 +1,138 @@
-const express = require('express');
-const axios = require('axios');
-const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
+// app.js
+import express from 'express';
+import cors from 'cors';
+import axios from 'axios';
+import { addonBuilder, serveHTTP } from 'stremio-addon-sdk';
+import LRUCache from 'lru-cache';
+import dotenv from 'dotenv';
 
-const app = express();
-const PORT = process.env.PORT || 7000;
+dotenv.config(); // ładowanie zmiennych środowiskowych
+const TMDB_API_KEY = process.env.TMDB_API_KEY;
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+
+if (!TMDB_API_KEY) {
+  console.error("🚨 Brak TMDB_API_KEY w .env!");
+  process.exit(1);
+}
 
 // =====================
-// CONFIG
+// CACHE LRU
 // =====================
-const TMDB_KEY = "02951f2ed7350a9bda520334ca76b647";
-
-// =====================
-// CACHE
-// =====================
-const cache = new Map();
-const TTL = 1000 * 60 * 30; // 30 minut
-
-const getCache = (key) => {
-  const data = cache.get(key);
-  if (!data) return null;
-  if (Date.now() - data.t > TTL) {
-    cache.delete(key);
-    return null;
-  }
-  return data.v;
-};
-
-const setCache = (key, value) => cache.set(key, { v: value, t: Date.now() });
+const cache = new LRUCache({
+  max: 100,         // maksymalna liczba elementów
+  ttl: 60 * 60 * 1000 // TTL 1h
+});
 
 // =====================
 // MANIFEST
 // =====================
-const manifest = {
-  id: "org.fanfilm.final",
-  version: "8.0.0",
-  name: "FanFilm FINAL",
-  description: "Stremio addon (TMDB + katalog + seriale)",
-  types: ["movie", "series"],
+const addon = addonBuilder({
+  id: 'org.stremio.fanfilm',
+  version: '1.0.0',
+  name: 'FanFilm Modern',
+  description: 'Nowoczesny Stremio Addon (TMDB + katalog + seriale)',
+  resources: ['catalog', 'meta', 'stream'],
+  types: ['movie', 'series'],
   catalogs: [
-    { type: "movie", id: "movies", name: "🎬 Popularne filmy" },
-    { type: "series", id: "series", name: "📺 Popularne seriale" }
+    { type: 'movie', id: 'moviecatalog', name: '🎬 Popularne filmy' },
+    { type: 'series', id: 'seriescatalog', name: '📺 Popularne seriale' }
   ],
-  resources: ["catalog", "meta", "stream"],
-  idPrefixes: ["tmdb:"]
-};
-
-const builder = new addonBuilder(manifest);
+  idPrefixes: ['tt']
+});
 
 // =====================
-// TMDB FETCH
+// HANDLER KATALOGU
 // =====================
-async function fetchTMDB(type) {
-  const key = "tmdb_" + type;
-  const cached = getCache(key);
-  if (cached) return cached;
+addon.defineCatalogHandler(async ({ type, id }) => {
+  try {
+    const cacheKey = `catalog-${type}-${id}`;
+    if (cache.has(cacheKey)) return cache.get(cacheKey);
 
-  const urlType = type === "series" ? "tv" : "movie";
-  const res = await axios.get(
-    `https://api.themoviedb.org/3/${urlType}/popular?api_key=${TMDB_KEY}&language=pl-PL`
-  );
+    let url;
+    if (type === 'movie') url = `${TMDB_BASE_URL}/movie/popular`;
+    else if (type === 'series') url = `${TMDB_BASE_URL}/tv/popular`;
+    else return { metas: [] };
 
-  const data = res.data.results.map(x => ({
-    id: "tmdb:" + x.id,
-    name: x.title || x.name,
-    poster: x.poster_path ? `https://image.tmdb.org/t/p/w500${x.poster_path}` : "",
-    type: type === "movie" ? "movie" : "series"
-  }));
+    const response = await axios.get(url, { params: { api_key: TMDB_API_KEY, language: 'pl-PL' } });
+    const metas = response.data.results.map(item => ({
+      id: `tt${item.id}`,
+      type,
+      name: item.title || item.name,
+      poster: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined
+    }));
 
-  setCache(key, data);
-  return data;
-}
+    cache.set(cacheKey, { metas });
+    return { metas };
+  } catch (error) {
+    console.error('Błąd pobierania katalogu:', error.message);
+    return { metas: [] };
+  }
+});
 
 // =====================
-// META HANDLER
+// HANDLER META
 // =====================
-builder.defineMetaHandler(async ({ id, type }) => {
-  if (type !== "series") return { meta: {} };
+addon.defineMetaHandler(async ({ id, type }) => {
+  if (!id.startsWith('tt')) return null;
+  try {
+    const cacheKey = `meta-${type}-${id}`;
+    if (cache.has(cacheKey)) return cache.get(cacheKey);
 
-  const tmdbId = id.replace("tmdb:", "");
-  const res = await axios.get(
-    `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_KEY}&language=pl-PL`
-  );
+    const tmdbId = id.substring(2);
+    const url = type === 'movie' ? `${TMDB_BASE_URL}/movie/${tmdbId}` : `${TMDB_BASE_URL}/tv/${tmdbId}`;
+    const response = await axios.get(url, { params: { api_key: TMDB_API_KEY, language: 'pl-PL' } });
+    const data = response.data;
 
-  const videos = [];
-  res.data.seasons.forEach(season => {
-    for (let i = 1; i <= season.episode_count; i++) {
-      videos.push({
-        id: `${id}:${season.season_number}:${i}`,
-        title: `S${season.season_number}E${i}`,
-        season: season.season_number,
-        episode: i
-      });
-    }
-  });
-
-  return {
-    meta: {
+    const meta = {
       id,
-      type: "series",
-      name: res.data.name,
-      videos
-    }
-  };
+      type,
+      name: data.title || data.name,
+      poster: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : undefined,
+      description: data.overview
+    };
+
+    cache.set(cacheKey, meta);
+    return meta;
+  } catch (error) {
+    console.error(`Błąd pobierania metadanych dla ${id}:`, error.message);
+    return null;
+  }
 });
 
 // =====================
-// STREAM HANDLER (demo)
+// HANDLER STREAM
 // =====================
-builder.defineStreamHandler(async () => ({
-  streams: [
-    {
-      title: "Demo stream",
-      url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-    }
-  ]
-}));
+addon.defineStreamHandler(async ({ id, type }) => {
+  if (!id.startsWith('tt')) return null;
+  try {
+    const cacheKey = `stream-${type}-${id}`;
+    if (cache.has(cacheKey)) return cache.get(cacheKey);
 
-// =====================
-// CATALOG HANDLER
-// =====================
-builder.defineCatalogHandler(async ({ type }) => {
-  if (type === "movie") return { metas: await fetchTMDB("movie") };
-  if (type === "series") return { metas: await fetchTMDB("series") };
-  return { metas: [] };
+    const tmdbId = id.substring(2);
+    const url = type === 'movie' ? `${TMDB_BASE_URL}/movie/${tmdbId}/videos` : `${TMDB_BASE_URL}/tv/${tmdbId}/videos`;
+    const response = await axios.get(url, { params: { api_key: TMDB_API_KEY, language: 'pl-PL' } });
+    const videos = response.data.results;
+
+    if (!videos.length) return null;
+
+    const streams = videos.map(video => ({
+      url: `https://www.youtube.com/watch?v=${video.key}`,
+      title: video.name
+    }));
+
+    cache.set(cacheKey, { streams });
+    return { streams };
+  } catch (error) {
+    console.error(`Błąd pobierania strumieni dla ${id}:`, error.message);
+    return null;
+  }
 });
 
 // =====================
-// EXPRESS + STREMIO
+// EXPRESS + CORS
 // =====================
-(async () => {
-  const stremioMiddleware = await serveHTTP(builder.getInterface());
+const app = express();
+app.use(cors());
+serveHTTP(addon.getInterface(), { port: 7000, app });
 
-  // manifest.json dla Stremio
-  app.get('/manifest.json', (req, res) => res.json(manifest));
-
-  // Stremio addon middleware
-  app.use('/', stremioMiddleware);
-
-  // start serwera
-  app.listen(PORT, () => {
-    console.log(`🔥 FanFilm FINAL działa na porcie ${PORT}`);
-  });
-})();
+console.log('🔥 FanFilm Modern działa na porcie 7000');
