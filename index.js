@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { addonBuilder, serveHTTP } = require('@stremio-addon/sdk');
+const { addonBuilder, serveHTTP } = require('@stremio-addon/sdk/lib/index'); // Poprawiony import
 require('dotenv').config();
 
 const app = express();
