@@ -14,19 +14,19 @@ const TMDB_KEY = "02951f2ed7350a9bda520334ca76b647";
 // CACHE
 // =====================
 const cache = new Map();
-const TTL = 1000 * 60 * 30;
+const TTL = 1000 * 60 * 30; // 30 minut
 
-const getCache = (k) => {
-  const d = cache.get(k);
-  if (!d) return null;
-  if (Date.now() - d.t > TTL) {
-    cache.delete(k);
+const getCache = (key) => {
+  const data = cache.get(key);
+  if (!data) return null;
+  if (Date.now() - data.t > TTL) {
+    cache.delete(key);
     return null;
   }
-  return d.v;
+  return data.v;
 };
 
-const setCache = (k, v) => cache.set(k, { v, t: Date.now() });
+const setCache = (key, value) => cache.set(key, { v: value, t: Date.now() });
 
 // =====================
 // MANIFEST
@@ -55,16 +55,15 @@ async function fetchTMDB(type) {
   const cached = getCache(key);
   if (cached) return cached;
 
+  const urlType = type === "series" ? "tv" : "movie";
   const res = await axios.get(
-    `https://api.themoviedb.org/3/${type}/popular?api_key=${TMDB_KEY}&language=pl-PL`
+    `https://api.themoviedb.org/3/${urlType}/popular?api_key=${TMDB_KEY}&language=pl-PL`
   );
 
   const data = res.data.results.map(x => ({
     id: "tmdb:" + x.id,
     name: x.title || x.name,
-    poster: x.poster_path
-      ? `https://image.tmdb.org/t/p/w500${x.poster_path}`
-      : "",
+    poster: x.poster_path ? `https://image.tmdb.org/t/p/w500${x.poster_path}` : "",
     type: type === "movie" ? "movie" : "series"
   }));
 
@@ -73,7 +72,7 @@ async function fetchTMDB(type) {
 }
 
 // =====================
-// META (seriale)
+// META HANDLER
 // =====================
 builder.defineMetaHandler(async ({ id, type }) => {
   if (type !== "series") return { meta: {} };
@@ -84,13 +83,12 @@ builder.defineMetaHandler(async ({ id, type }) => {
   );
 
   const videos = [];
-
-  res.data.seasons.forEach(s => {
-    for (let i = 1; i <= s.episode_count; i++) {
+  res.data.seasons.forEach(season => {
+    for (let i = 1; i <= season.episode_count; i++) {
       videos.push({
-        id: `${id}:${s.season_number}:${i}`,
-        title: `S${s.season_number}E${i}`,
-        season: s.season_number,
+        id: `${id}:${season.season_number}:${i}`,
+        title: `S${season.season_number}E${i}`,
+        season: season.season_number,
         episode: i
       });
     }
@@ -107,35 +105,40 @@ builder.defineMetaHandler(async ({ id, type }) => {
 });
 
 // =====================
-// STREAM (demo)
+// STREAM HANDLER (demo)
 // =====================
-builder.defineStreamHandler(async () => {
-  return {
-    streams: [
-      {
-        title: "Demo stream",
-        url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-      }
-    ]
-  };
-});
+builder.defineStreamHandler(async () => ({
+  streams: [
+    {
+      title: "Demo stream",
+      url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+    }
+  ]
+}));
 
 // =====================
-// CATALOG
+// CATALOG HANDLER
 // =====================
 builder.defineCatalogHandler(async ({ type }) => {
   if (type === "movie") return { metas: await fetchTMDB("movie") };
-  if (type === "series") return { metas: await fetchTMDB("tv") };
+  if (type === "series") return { metas: await fetchTMDB("series") };
   return { metas: [] };
 });
 
 // =====================
-// EXPRESS FIX (NAJWAŻNIEJSZE)
+// EXPRESS + STREMIO
 // =====================
-app.get('/manifest.json', (req, res) => res.json(manifest));
-app.use('/', serveHTTP(builder.getInterface()));
+(async () => {
+  const stremioMiddleware = await serveHTTP(builder.getInterface());
 
-// =====================
-app.listen(PORT, () => {
-  console.log("🔥 FanFilm FINAL działa na porcie " + PORT);
-});
+  // manifest.json dla Stremio
+  app.get('/manifest.json', (req, res) => res.json(manifest));
+
+  // Stremio addon middleware
+  app.use('/', stremioMiddleware);
+
+  // start serwera
+  app.listen(PORT, () => {
+    console.log(`🔥 FanFilm FINAL działa na porcie ${PORT}`);
+  });
+})();
