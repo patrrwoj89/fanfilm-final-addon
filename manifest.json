@@ -1,0 +1,12 @@
+{
+  "id": "fanfilm.proplus",
+  "version": "5.0.0",
+  "name": "FanFilm PRO+",
+  "resources": ["catalog", "stream"],
+  "types": ["movie", "series"],
+  "catalogs": [
+    { "type": "movie", "id": "m", "name": "Filmy" },
+    { "type": "series", "id": "s", "name": "Seriale" }
+  ],
+  "idPrefixes": ["tmdb:"]
+}
