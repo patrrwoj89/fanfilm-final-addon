@@ -1,14 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { addonBuilder, serveHTTP } = require('@stremio-addon/sdk');
+const { AddonBuilder, createRouter } = require('@stremio-addon/sdk');
 require('dotenv').config();
 
 const app = express();
-app.use(cors()); // Obsługa CORS
+app.use(cors());
 
 const TMDB_KEY = process.env.TMDB_API_KEY;
-const PORT = process.env.PORT || 7000;
+const PORT = process.env.PORT || 5000;
 
 // =====================
 // PROSTA PAMIĘĆ CACHE
@@ -47,7 +47,7 @@ const manifest = {
     idPrefixes: ["tmdb:"]
 };
 
-const builder = new addonBuilder(manifest);
+const builder = new AddonBuilder(manifest);
 
 // =====================
 // POBIERANIE POPULARNYCH
@@ -144,13 +144,10 @@ builder.defineCatalogHandler(async ({ type }) => {
 // =====================
 // EXPRESS + STREMIO
 // =====================
-app.get('/manifest.json', (req, res) => res.json(manifest));
+const addonInterface = builder.getInterface();
+const router = createRouter(addonInterface);
 
-(async () => {
-    const stremioAddon = await serveHTTP(builder.getInterface(), { app });
-    app.use('/', stremioAddon.middleware);
-
-    app.listen(PORT, () => {
-        console.log(`🔥 FanFilm FINAL działa na porcie ${PORT}`);
-    });
-})();
+// Bridge Web Standard Request/Response to Express
+app.use(async (req, res, next) => {
+    try {
+        const url = `http://localhost${req.url}`;
