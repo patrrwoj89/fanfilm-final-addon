@@ -151,3 +151,26 @@ const router = createRouter(addonInterface);
 app.use(async (req, res, next) => {
     try {
         const url = `http://localhost${req.url}`;
+        const webReq = new Request(url, {
+            method: req.method,
+            headers: req.headers
+        });
+        const webRes = await router(webReq);
+        if (webRes === null) {
+            return next();
+        }
+        res.status(webRes.status);
+        webRes.headers.forEach((value, key) => {
+            res.setHeader(key, value);
+        });
+        const body = await webRes.text();
+        res.send(body);
+    } catch (err) {
+        next(err);
+    }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🔥 FanFilm FINAL działa na porcie ${PORT}`);
+    console.log(`📡 Manifest: http://localhost:${PORT}/manifest.json`);
+});
