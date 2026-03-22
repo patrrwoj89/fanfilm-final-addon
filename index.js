@@ -1,18 +1,14 @@
-const express = require("express");
-const fetch = (...args) => import("node-fetch").then(({default: f}) => f(...args));
+import express from "express";
+import fetch from "node-fetch";
+
 const app = express();
 const port = process.env.PORT || 3000;
 
-// -----------------------------
-// ENVIRONMENT VARIABLES
-// -----------------------------
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const CDA_USERNAME = process.env.CDA_USERNAME;
 const CDA_PASSWORD = process.env.CDA_PASSWORD;
 
-// -----------------------------
-// ŹRÓDŁA
-// -----------------------------
+// Źródła
 const SOURCES = [
   { name: "AIO", base: "https://aiostreams.fortheweak.cloud/stremio/3bf791af-d2c5-4d2a-892c-4cbb93106083/" },
   { name: "TorBox", base: "https://stremio.torbox.app/538c81f1-543c-4bed-bcb2-51ce204e03be/" },
@@ -21,16 +17,15 @@ const SOURCES = [
   { name: "Viren", base: "https://aiostreams.viren070.com/" }
 ];
 
-// -----------------------------
-// CDA AUTH
-// -----------------------------
 let cdaToken = null;
+
+// CDA Login
 async function loginCDA() {
   if (!CDA_USERNAME || !CDA_PASSWORD) return null;
   try {
     const res = await fetch(`https://cda.pl/api/auth/login`, {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ login: CDA_USERNAME, password: CDA_PASSWORD })
     });
     const json = await res.json();
@@ -56,33 +51,28 @@ async function fetchCDA(path) {
   }
 }
 
-// -----------------------------
-// HELPERS
-// -----------------------------
+// Fetch z innych źródeł
 async function fetchFromSource(src, path) {
   try {
-    const url = src.name === "CDA"
-      ? `stream/${path}`  // CDA handled separately
-      : `${src.base}${path}`;
+    const url = src.name === "CDA" ? `stream/${path}` : `${src.base}${path}`;
     const res = await fetch(url);
     return await res.json();
   } catch (e) {
-    console.error(`Fetch err from ${src.name}:`, e.message);
+    console.error(`Fetch error from ${src.name}:`, e.message);
     return null;
   }
 }
 
+// Filtrowanie PL/JAP+PL
 function filterPL(streams) {
   return streams.filter(s => {
     const name = (s.name || "").toLowerCase();
     const desc = (s.description || "").toLowerCase();
-    // polski lektor / dubbing / napisy
-    return name.includes("🇵🇱") ||
-           desc.includes("🇵🇱") ||
-           (desc.includes("jp") && desc.includes("pl"));
+    return name.includes("🇵🇱") || desc.includes("🇵🇱") || (desc.includes("jp") && desc.includes("pl"));
   });
 }
 
+// Unikalne po ID
 function uniqueById(arr) {
   const s = new Set();
   return arr.filter(item => {
@@ -92,20 +82,36 @@ function uniqueById(arr) {
   });
 }
 
-// -----------------------------
+// TMDB Metadata
+async function fetchTMDBMetadata(tmdbId, type) {
+  try {
+    const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&language=pl-PL`;
+    const res = await fetch(url);
+    const json = await res.json();
+    return {
+      id: `tmdb:${tmdbId}`,
+      name: json.title || json.name || "Brak tytułu",
+      poster: json.poster_path ? `https://image.tmdb.org/t/p/w500${json.poster_path}` : null,
+      description: json.overview || "",
+      year: (json.release_date || json.first_air_date || "").slice(0, 4),
+      type: type
+    };
+  } catch (e) {
+    console.error("TMDB fetch failed:", e.message);
+    return null;
+  }
+}
+
 // STREAMY
-// -----------------------------
 app.get("/stream/:type/:id.json", async (req, res) => {
   const id = req.params.id;
   let allStreams = [];
 
-  // CDA
   if (CDA_USERNAME && CDA_PASSWORD) {
     const cdaData = await fetchCDA(`stream/${id}.json`);
     if (cdaData && cdaData.streams) allStreams.push(...cdaData.streams);
   }
 
-  // pozostałe źródła
   for (const src of SOURCES) {
     const data = await fetchFromSource(src, `stream/${id}.json`);
     if (data && data.streams) allStreams.push(...data.streams);
@@ -115,11 +121,15 @@ app.get("/stream/:type/:id.json", async (req, res) => {
   res.json({ streams: filtered });
 });
 
-// -----------------------------
 // KATALOG
-// -----------------------------
 app.get("/catalog/:type/:id.json", async (req, res) => {
+  const id = req.params.id;
+  const type = req.params.type;
+  const tmdbId = id.replace("tmdb:", "");
   let metas = [];
+
+  const meta = await fetchTMDBMetadata(tmdbId, type);
+  if (meta) metas.push(meta);
 
   for (const src of SOURCES) {
     const data = await fetchFromSource(src, `catalog/${id}.json`);
@@ -130,16 +140,15 @@ app.get("/catalog/:type/:id.json", async (req, res) => {
   res.json({ metas: unique });
 });
 
-// -----------------------------
 // MANIFEST
-// -----------------------------
 app.get("/manifest.json", (req, res) => {
   res.json({
     id: "fanfilm.proplus",
-    version: "6.0.0",
+    version: "6.1.0",
     name: "FanFilm PRO+",
+    description: "Addon do Stremio z polskimi streamami filmów, seriali i anime (PL / JP+PL). Automatyczne postery i opisy z TMDB.",
     resources: ["catalog", "stream"],
-    types: ["movie", "series"],
+    types: ["movie","series"],
     catalogs: [
       { type: "movie", id: "m", name: "Filmy" },
       { type: "series", id: "s", name: "Seriale" }
@@ -148,9 +157,7 @@ app.get("/manifest.json", (req, res) => {
   });
 });
 
-// -----------------------------
-// START
-// -----------------------------
+// START SERVER
 app.listen(port, () => {
   console.log(`FanFilm PRO+ live on port ${port}`);
 });
