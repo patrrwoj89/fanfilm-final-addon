@@ -1,7 +1,8 @@
 {
   "id": "fanfilm.proplus",
-  "version": "5.0.0",
+  "version": "6.1.0",
   "name": "FanFilm PRO+",
+  "description": "Addon do Stremio z polskimi streamami filmów, seriali oraz anime (PL / JP+PL). Z automatycznym pobieraniem posterów i opisów z TMDB.",
   "resources": ["catalog", "stream"],
   "types": ["movie", "series"],
   "catalogs": [
