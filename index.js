@@ -1,9 +1,21 @@
 import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 import fetch from "node-fetch";
 
 const app = express();
-const port = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
+// Konfiguracja __dirname dla ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Middleware JSON
+app.use(express.json());
+
+// ======================
+// KONFIGURACJA I ŹRÓDŁA
+// ======================
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const CDA_USERNAME = process.env.CDA_USERNAME;
 const CDA_PASSWORD = process.env.CDA_PASSWORD;
@@ -19,7 +31,9 @@ const SOURCES = [
 
 let cdaToken = null;
 
-// CDA Login
+// ======================
+// CDA LOGIN I FETCH
+// ======================
 async function loginCDA() {
   if (!CDA_USERNAME || !CDA_PASSWORD) return null;
   try {
@@ -51,7 +65,9 @@ async function fetchCDA(path) {
   }
 }
 
-// Fetch z innych źródeł
+// ======================
+// FETCH Z INNYCH ŹRÓDEŁ
+// ======================
 async function fetchFromSource(src, path) {
   try {
     const url = src.name === "CDA" ? `stream/${path}` : `${src.base}${path}`;
@@ -63,7 +79,9 @@ async function fetchFromSource(src, path) {
   }
 }
 
-// Filtrowanie PL/JAP+PL
+// ======================
+// FILTROWANIE I UNIKALNE
+// ======================
 function filterPL(streams) {
   return streams.filter(s => {
     const name = (s.name || "").toLowerCase();
@@ -72,7 +90,6 @@ function filterPL(streams) {
   });
 }
 
-// Unikalne po ID
 function uniqueById(arr) {
   const s = new Set();
   return arr.filter(item => {
@@ -82,7 +99,9 @@ function uniqueById(arr) {
   });
 }
 
-// TMDB Metadata
+// ======================
+// TMDB METADATA
+// ======================
 async function fetchTMDBMetadata(tmdbId, type) {
   try {
     const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&language=pl-PL`;
@@ -102,7 +121,9 @@ async function fetchTMDBMetadata(tmdbId, type) {
   }
 }
 
-// STREAMY
+// ======================
+// ENDPOINT STREAM
+// ======================
 app.get("/stream/:type/:id.json", async (req, res) => {
   const id = req.params.id;
   let allStreams = [];
@@ -121,7 +142,9 @@ app.get("/stream/:type/:id.json", async (req, res) => {
   res.json({ streams: filtered });
 });
 
-// KATALOG
+// ======================
+// ENDPOINT KATALOG
+// ======================
 app.get("/catalog/:type/:id.json", async (req, res) => {
   const id = req.params.id;
   const type = req.params.type;
@@ -140,7 +163,9 @@ app.get("/catalog/:type/:id.json", async (req, res) => {
   res.json({ metas: unique });
 });
 
+// ======================
 // MANIFEST
+// ======================
 app.get("/manifest.json", (req, res) => {
   res.json({
     id: "fanfilm.proplus",
@@ -157,7 +182,51 @@ app.get("/manifest.json", (req, res) => {
   });
 });
 
-// START SERVER
-app.listen(port, () => {
-  console.log(`FanFilm PRO+ live on port ${port}`);
+// ======================
+// DASHBOARD / ROOT
+// ======================
+app.get('/', (req, res) => {
+  res.send(`
+    <h1>🎬 FanFilm PRO+ działa!</h1>
+    <p>Status API: <a href="/api/status">/api/status</a></p>
+    <p>Statyczne pliki: <a href="/static/">/static/</a></p>
+    <p>Serwis jest utrzymywany online dzięki self-ping co 5 minut.</p>
+  `);
 });
+
+// ======================
+// API STATUS
+// ======================
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'ok',
+    time: new Date().toISOString(),
+    uptime: process.uptime().toFixed(0) + 's'
+  });
+});
+
+// ======================
+// STATYCZNE PLIKI
+// ======================
+app.use('/static', express.static(path.join(__dirname, 'public')));
+
+// ======================
+// START SERWERA
+// ======================
+app.listen(PORT, () => {
+  console.log(`🚀 FanFilm PRO+ live na porcie ${PORT}`);
+});
+
+// ======================
+// SELF-PING CO 5 MINUT
+// ======================
+const SELF_URL = process.env.SELF_URL || `https://aio-cda.onrender.com`;
+
+setInterval(async () => {
+  try {
+    await fetch(SELF_URL);
+    console.log(`✅ Self-ping wykonany, serwis podtrzymany online`);
+  } catch (err) {
+    console.error(`❌ Błąd self-pingu:`, err);
+  }
+}, 5 * 60 * 1000);
