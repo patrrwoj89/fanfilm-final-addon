@@ -125,8 +125,7 @@ function score(s) {
 // =====================
 // BUILDER
 // =====================
-const AIO = "https://aiostreams.fortheweak.cloud/stremio/dab60b7c-f7c9-4e67-9ed6-4cbb04a1294f/eyJpIjoiL0NlRmoyZUdSNHkwMSsvNENIRnpFdz09IiwiZSI6InVBek9BendqTnVJQ3ZweTUxU3l5YmR3N0pNdTBXQ3hmR2ZyZzZ1a2I4bUE9IiwidCI6ImEifQ";
-
+const AIO = "https://aiostreams.fortheweak.cloud/stremio/3bf791af-d2c5-4d2a-892c-4cbb93106083/eyJpIjoiY0cxS05VV0dmVFR3b2hjSGY5cFY4UT09IiwiZSI6ImJCTFRTd3RuMGFpdkJLSzdmdThaMEtkdVlZcUNmK1Y3OWsvb0djbDFhcGM9IiwidCI6ImEifQ";
 const builder = new AddonBuilder({
     id: "fanfilm.proplus",
     version: "5.0.0",
