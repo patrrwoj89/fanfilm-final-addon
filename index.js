@@ -50,7 +50,7 @@ async function fetchFromSource(src, path) {
 }
 
 // -----------------------------
-// STREAMY z FILTREM PL / JP+PL
+// STREAMY (tymczasowo BEZ filtra PL)
 // -----------------------------
 async function fetchStreams(id) {
   let allStreams = [];
@@ -60,23 +60,12 @@ async function fetchStreams(id) {
     if (data && data.streams) allStreams = allStreams.concat(data.streams);
   }
 
-  // Filtr PL i JP+PL dla anime
-  const plStreams = allStreams.filter(s =>
-    s.name.includes('🇵🇱') ||
-    (s.description && s.description.includes('🇵🇱')) ||
-    (s.description && s.description.includes('🇯🇵') && s.description.includes('PL'))
-  );
-
-  // Sortowanie po jakości
-  return plStreams.sort((a,b) => {
-    const qa = (a.name.match(/\d+p/) || ['0'])[0].replace('p','')*1;
-    const qb = (b.name.match(/\d+p/) || ['0'])[0].replace('p','')*1;
-    return qb - qa;
-  });
+  // Tymczasowo bez filtra PL
+  return allStreams;
 }
 
 // -----------------------------
-// KATALOG (FILMY i SERIALE) — tylko PL
+// KATALOG (FILMY i SERIALE) — wszystkie dla testu
 // -----------------------------
 app.get('/catalog/:type/:id.json', async (req, res) => {
   const id = req.params.id; // "m" lub "s"
@@ -89,24 +78,7 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
     if (data && data.metas) allMetas = allMetas.concat(data.metas);
   }
 
-  // Sprawdzenie, które mają PL streamy
-  const metasWithPL = [];
-  for (const meta of allMetas) {
-    const streams = await fetchStreams(meta.id);
-    if (streams.length > 0) {
-      // opcjonalnie TMDB dane
-      try {
-        const tmdbId = meta.id.replace('tmdb:', '');
-        const tmdbRes = await fetch(`https://api.themoviedb.org/3/${req.params.type}/${tmdbId}?api_key=${TMDB_API_KEY}&language=pl-PL`);
-        const tmdbData = await tmdbRes.json();
-        meta.poster = tmdbData.poster_path ? `https://image.tmdb.org/t/p/w500${tmdbData.poster_path}` : null;
-        meta.overview = tmdbData.overview || meta.overview;
-      } catch {}
-      metasWithPL.push(meta);
-    }
-  }
-
-  const uniqueMetas = uniqueById(metasWithPL);
+  const uniqueMetas = uniqueById(allMetas);
   catalogCache[id] = uniqueMetas;
   res.json({ metas: uniqueMetas });
 });
@@ -123,8 +95,26 @@ app.get('/stream/:type/:id.json', async (req, res) => {
 });
 
 // -----------------------------
+// MANIFEST
+// -----------------------------
+app.get('/manifest.json', (req, res) => {
+  res.json({
+    "id": "fanfilm.proplus",
+    "version": "5.0.0",
+    "name": "FanFilm PRO+",
+    "resources": ["catalog", "stream"],
+    "types": ["movie", "series"],
+    "catalogs": [
+      { "type": "movie", "id": "m", "name": "Filmy" },
+      { "type": "series", "id": "s", "name": "Seriale" }
+    ],
+    "idPrefixes": ["tmdb:"]
+  });
+});
+
+// -----------------------------
 // START SERVER
 // -----------------------------
 app.listen(port, () => {
-  console.log(`FanFilm PRO+ PL-only katalog running on port ${port}`);
+  console.log(`FanFilm PRO+ katalog running on port ${port}`);
 });
